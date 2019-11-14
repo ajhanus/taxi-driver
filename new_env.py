@@ -2,6 +2,7 @@ import random
 import pyglet
 import numpy as np
 from enum import Enum
+from math import floor
 
 
 class Actions(Enum):
@@ -21,6 +22,7 @@ class SquareType(Enum):
 class TaxiDriverBoard:
     def __init__(self, size):
         self.size = size
+        self.reward_table = []
         self.reset()
 
     def do_action(self, action: Actions):
@@ -43,7 +45,11 @@ class TaxiDriverBoard:
         return False
     
     def set_state(self, state):
-        print("TODO")
+        self.taxi.location = ((state[0] - 1) % 5, floor((state[0] - 1) / 5))
+        self.taxi.direction = Direction(state[1])
+        self.pickup = ((state[2] - 1) % 5, floor((state[2] - 1) / 5))
+        self.dropoff = ((state[3] - 1) % 5, floor((state[3] - 1) / 5))
+        print(self.taxi.location, self.taxi.direction, self.pickup, self.dropoff)
 
     def reset(self):
         self.taxi = Taxi((random.randint(0, self.size[1] - 1), random.randint(0, self.size[1] - 1)))
@@ -148,6 +154,7 @@ dropoffSprite = pyglet.sprite.Sprite(dropoffPic, batch=batch)
 
 game = TaxiDriverBoard((5, 5))
 
+game.set_state((18, 3, 5, 8))
 
 def set_assets():
     taxiSprite.x = game.taxi.location[0] * 50 + offsetX + 25
