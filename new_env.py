@@ -5,6 +5,13 @@ from enum import Enum
 from math import floor
 
 
+def value_to_tuple(value):
+    return (value % 5, floor(value / 5))
+
+def tuple_to_value(tuple):
+    return tuple[0] + (tuple[1] * 5)
+
+
 class Actions(Enum):
     FORWARD = 1
     TURN_LEFT = 2
@@ -22,10 +29,25 @@ class SquareType(Enum):
 class TaxiDriverBoard:
     def __init__(self, size):
         self.size = size
-        self.reward_table = []
+        self.init_binary_to_index()
+        self.init_reward_table()
         self.reset()
 
-    def do_action(self, action: Actions):
+    def init_binary_to_index(self):
+        self.binary_to_index = {}
+        for taxiLoc in range(25):
+            for taxiDir in range(4):
+                for pickupLoc in range(25):
+                    for dropoffLoc in range(25):
+                        self.binary_to_index[self.values_to_binary(taxiLoc, taxiDir, pickupLoc, dropoffLoc)] = len(self.binary_to_index)
+
+    def values_to_binary(self, taxiLoc, taxiDir, pickupLoc, dropoffLoc):
+        return taxiLoc + (taxiDir << 5) + (pickupLoc << 7) + (dropoffLoc << 12)
+    
+    def values_to_index(self, taxiLoc, taxiDir, pickupLoc, dropoffLoc):
+        return self.binary_to_index[self.values_to_binary(taxiLoc, taxiDir, pickupLoc, dropoffLoc)]
+
+    def do_action(self, action):
         if action == Actions.FORWARD:
             loc = self.taxi.get_forward()
             if loc[0] > -1 and loc[0] < self.size[0] and \
@@ -45,11 +67,49 @@ class TaxiDriverBoard:
         return False
     
     def set_state(self, state):
-        self.taxi.location = ((state[0] - 1) % 5, floor((state[0] - 1) / 5))
+        self.taxi.location = value_to_tuple(state[0])
         self.taxi.direction = Direction(state[1])
-        self.pickup = ((state[2] - 1) % 5, floor((state[2] - 1) / 5))
-        self.dropoff = ((state[3] - 1) % 5, floor((state[3] - 1) / 5))
-        print(self.taxi.location, self.taxi.direction, self.pickup, self.dropoff)
+        self.pickup = state[2]
+        self.dropoff = state[3]
+    
+    def get_state(self):
+        return self.values_to_index(tuple_to_value(self.taxi.location), self.taxi.direction.value, self.pickup, self.dropoff)
+
+    def init_reward_table(self):
+        self.reward_table = np.empty([len(self.binary_to_index)], dtype=object)
+        for taxiLoc in range(25):
+            for taxiDir in range(4):
+                for pickupLoc in range(25):
+                    for dropoffLoc in range(25):
+                        current_state = self.values_to_index(taxiLoc, taxiDir, pickupLoc, dropoffLoc)
+                        forward_state = current_state
+                        turn_right_state = self.values_to_index(taxiLoc, (taxiDir - 1) % 4, pickupLoc, dropoffLoc)
+                        turn_left_state = self.values_to_index(taxiLoc, (taxiDir + 1) % 4, pickupLoc, dropoffLoc)
+                        pickup_state = current_state
+                        pickup_reward = -10
+                        dropoff_successful = False
+                        dropoff_reward = -10
+                        if taxiDir == 0 and taxiLoc - 5 > -1:
+                            forward_state = self.values_to_index(taxiLoc - 5, taxiDir, pickupLoc, dropoffLoc)
+                        if taxiDir == 1 and taxiLoc % 5 != 0:
+                            forward_state = self.values_to_index(taxiLoc - 1, taxiDir, pickupLoc, dropoffLoc)
+                        if taxiDir == 2 and taxiLoc + 5 < 25:
+                            forward_state = self.values_to_index(taxiLoc + 5, taxiDir, pickupLoc, dropoffLoc)
+                        if taxiDir == 3 and taxiLoc % 5 != 4:
+                            forward_state = self.values_to_index(taxiLoc + 1, taxiDir, pickupLoc, dropoffLoc)
+                        if pickupLoc == taxiLoc and not (pickupLoc == dropoffLoc):
+                            pickup_state = self.values_to_index(taxiLoc, taxiDir, dropoffLoc, dropoffLoc)
+                            pickup_reward = 10
+                        if taxiLoc == dropoffLoc and pickupLoc == dropoffLoc:
+                            dropoff_successful = True
+                            dropoff_reward = 10
+                        self.reward_table[current_state] = {
+                            0: (1.0, forward_state, -1, False),
+                            1: (1.0, turn_left_state, -1, False),
+                            2: (1.0, turn_right_state, -1, False),
+                            3: (1.0, pickup_state, pickup_reward, False),
+                            4: (1.0, current_state, dropoff_reward, dropoff_successful)
+                        }
 
     def reset(self):
         self.taxi = Taxi((random.randint(0, self.size[1] - 1), random.randint(0, self.size[1] - 1)))
@@ -155,17 +215,18 @@ dropoffSprite = pyglet.sprite.Sprite(dropoffPic, batch=batch)
 game = TaxiDriverBoard((5, 5))
 
 game.set_state((18, 3, 5, 8))
+print(game.reward_table[game.values_to_index(18, 3, 5, 8)])
 
 def set_assets():
     taxiSprite.x = game.taxi.location[0] * 50 + offsetX + 25
     taxiSprite.y = game.taxi.location[1] * 50 + offsetY + 25
     taxiSprite.rotation = -90 * game.taxi.direction.value
     if game.pickup:
-        pickupSprite.x = game.pickup[0] * 50 + offsetX + 25
-        pickupSprite.y = game.pickup[1] * 50 + offsetY + 25
+        pickupSprite.x = value_to_tuple(game.pickup)[0] * 50 + offsetX + 25
+        pickupSprite.y = value_to_tuple(game.pickup)[1] * 50 + offsetY + 25
     if game.dropoff:
-        dropoffSprite.x = game.dropoff[0] * 50 + offsetX + 25
-        dropoffSprite.y = game.dropoff[1] * 50 + offsetY + 25
+        dropoffSprite.x = value_to_tuple(game.dropoff)[0] * 50 + offsetX + 25
+        dropoffSprite.y = value_to_tuple(game.dropoff)[1] * 50 + offsetY + 25
 
 
 @window.event
@@ -184,6 +245,8 @@ def on_key_press(symbol, modifiers):
             game.reset()
     elif symbol == pyglet.window.key.ESCAPE:
         pyglet.app.exit()
+    elif symbol == pyglet.window.key.I:
+        print(game.get_state())
 
 
 @window.event
